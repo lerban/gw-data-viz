@@ -1,0 +1,478 @@
+---
+title: "Visualizing NWIS data"
+author: 'Laura Erban'
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: yeti
+    code_folding: hide
+    number_sections: no
+    toc: no
+    toc_float: no
+  html_notebook:
+    theme: yeti
+    code_folding: hide
+    number_sections: no
+    toc: no
+    toc_float: no
+---
+
+```{r load_libraries, include=FALSE}
+library(here)
+library(leaflet)
+library(leafsync)
+library(leaflegend)
+library(dataRetrieval)
+library(plotly)
+library(knitr)
+library(tidyverse)
+```
+
+$~$
+
+This notebook helps visualize and explore surface and groundwater observations stored in the National Water Information System (NWIS). It was written to perform automated pulls and interactive mapping and plotting of data as it was being collected and analyzed for a specific project, but it can be modified for any region where there is data in NWIS.  
+
+$~$
+
+### 1. Map sites 
+```{r}
+# watershed screening sites 
+screensites <- whatNWISsites(bBox = c(-70.448, 41.626, -70.392, 41.677))
+nums <- "504|505|506|507"
+screensites <- screensites %>%
+  filter(grepl(nums, station_nm))
+
+# local demonstration sites
+sites <- whatNWISsites(bBox = c(-70.405, 41.669, -70.395, 41.677))
+
+# site info
+baseurl1 <- "https://nwis.waterdata.usgs.gov/usa/nwis/qwdata/?site_no="
+baseurl2 <-  "&agency_cd=USGS"
+
+siteinfo <- readNWISsite(sites$site_no) %>%
+  dplyr::select(site_no, station_nm, site_tp_cd, dec_lat_va, dec_long_va, dec_coord_datum_cd, alt_va, alt_datum_cd, well_depth_va)%>%
+  mutate(id = substr(station_nm, 9, 11)) %>%
+  mutate(weblink = paste(baseurl1,site_no,baseurl2,sep = " "))
+
+# reclassify site types for mapping
+siteinfo$site_tp_cd[grep("M01", siteinfo$station_nm)] <- "multilevel sampler (MLS)"
+clust <- "505-0|517-0|524-0|525-0|526-0"
+siteinfo$site_tp_cd[grepl(clust, siteinfo$station_nm)] <- "well cluster"
+siteinfo$site_tp_cd[which(siteinfo$site_tp_cd=="GW")] <- "water table well"
+siteinfo$site_tp_cd[which(siteinfo$site_tp_cd=="LK")] <- "surface water (pond)"
+
+# add a treatment variable
+siteinfo$treatment <- NA
+controls <- c(505,508,514,515,520,521)
+siteinfo$treatment[which(siteinfo$id %in% controls)] <- "control"
+impacts <- c(517,522,523,524,525,526)
+siteinfo$treatment[which(siteinfo$id %in% impacts)] <- "impact"
+siteinfo$treatment[siteinfo$id == 509] <- "other"
+
+# site numbers within 10ft of water table (as of Sept, 2021)
+sn <- c("414010070235201", "414015070235001", "414015070235002", "414015070235301", "414015070235303", "414016070235001", "414016070235002", "414016070235101", "414016070235102", "414016070235103", "414017070235004", "414017070235005", "414017070235006", "414017070235008", "414017070235010", "414018070235103", "414018070235104", "414018070235106", "414018070235108", "414018070235110", "414020070234801", "414020070240501", "414021070235201", "414024070234804", "414024070234805", "414024070234807", "414025070235201", "414032070234601")
+
+```
+
+```{r}
+# map all sites by type
+pal <- colorFactor("Accent", domain = siteinfo$site_tp_cd)
+
+leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
+  addProviderTiles('Esri.WorldTopoMap')%>%
+  addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
+                 fillOpacity = 1, fillColor = ~pal(site_tp_cd),
+                 popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
+  addScaleBar("bottomright") %>%
+  addLegend(pal = pal, title = "Site type", opacity = 1, values = ~site_tp_cd, position = "topleft")
+
+# map all sites by treatment
+pal <- colorFactor("Accent", domain = siteinfo$treatment)
+
+leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
+  addProviderTiles('Esri.WorldTopoMap')%>%
+  addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
+                 fillOpacity = 1, fillColor = ~pal(treatment),
+                 popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
+  addScaleBar("bottomright") %>%
+  addLegend(pal = pal, title = "Treatment", opacity = 1, values = ~treatment, position = "topleft")
+
+```
+
+$~$
+
+### 2. Specify water quality parameters for data retrieval
+``` {r}
+# parameters     (nutrients samples are all filtered)
+temp <- "00010"  # temperature                 (degC)
+sc <- "00095"    # SpC                         (uS/cm)
+ph <- "00400"    # pH
+do <- "00300"    # DO                          (mg/L)
+nh34 <- "00608"  # ammonia and ammonium, as N                (mg/L)
+no2 <- "00613"   # nitrite as N                (mg/L)
+no3 <- "00618"   # nitrate as N                (mg/L)
+no23 <- "00631"  # nitrate + nitrite as N      (mg/L)
+tn <- "62854"    # total nitrogen              (mg/L)
+po4 <- "00671"   # orthophosphate as P         (mg/L)
+delH <- "82082"  # delta H2/H1                (per mil)
+delO <- "82085"  # delta O18/O16              (per mil)
+
+pset <- c(temp, sc, ph, do, nh34, no2, no3, no23, tn, po4, delH, delO)
+```
+
+### 3. Retrieve and summarize data
+
+```{r retrieve, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
+# RETRIEVAL
+
+# pull water quality data
+## option A (to be retired)
+data <- readNWISqw(siteNumber = siteinfo$site_no, parameterCd = pset)
+b <- data %>% dplyr::select(c(site_no, sample_dt, sample_tm, parm_cd, result_va))
+
+# ## option B (suggested going forward)
+# data <- readWQPqw(siteNumber = paste0("USGS-", siteinfo$site_no), parameterCd = pset)
+# # select columns and rename
+# b <- data %>% dplyr::select(c(MonitoringLocationIdentifier, ActivityStartDate, USGSPCode, CharacteristicName, ResultMeasure.MeasureUnitCode, ResultMeasureValue))
+# names(b) <- c("site_no", "sample_dt", "parm_cd", "charname", "units", "result_va")
+# b$site_no <- sub("USGS-", "", b$site_no)
+
+# combine site info and qw data
+a <- siteinfo 
+a$station_nm[grep("SHUBAEL", a$station_nm)] <- "SHUBAEL POND"
+alldata <- right_join(a,b) %>%
+  mutate(param = parm_cd)
+
+# create param names from codes
+alldata$param <- dplyr::recode(alldata$param, `00010` = "temp", `00095` = "SpC", `00400` = "pH", `00300` = "DO", `00608` = "NH34", `00613` = "NO2", `00618` = "NO3", `00631` = "NO23", `62854` = "TN", `00671` = "PO4", `82082` = "delH", `82085` = "delO")
+
+# pull water levels data
+gwl <- readNWISgwl(siteNumbers = siteinfo$site_no)%>%
+  filter(lev_dt > "2021-09-01") 
+
+# join site info
+dtw <- gwl %>%
+  filter(!is.na(lev_va))
+dtw <- right_join(siteinfo %>% dplyr::select(station_nm, site_no, id, dec_lat_va, dec_long_va, alt_va, well_depth_va, weblink), dtw) 
+
+```
+
+```{r summarize, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
+# SUMMARIES
+
+# number of sample depths at each location
+nwells <- alldata %>% 
+  group_by(id) %>%
+  summarise(depths = length(unique(well_depth_va))) 
+
+# number of depths and samples at each location, by parameter
+allsum <- alldata %>% 
+  group_by(id, param) %>%
+  summarise(count = n()) %>%
+  pivot_wider(id_cols = id, names_from = param, values_from = count)
+
+allsum <- left_join(allsum, nwells) %>%
+  dplyr::select(id, depths, temp, SpC, pH, DO, NH34:NO3, TN) %>%
+  arrange(depths)
+
+# subset data for a specific sampling event
+zt <- alldata %>%
+  dplyr::filter(sample_dt > "2021-09-01") 
+
+# estimate depth below water table (satdepth) for each sample  
+zt <- left_join(zt, dtw %>% select(c(site_no, lev_va)))             # first, join depth to water
+mls <- zt %>% filter(site_tp_cd == "multilevel sampler (MLS)") %>%  # for mls, assign depth of most shallow sampled port, -0.5ft, as estimate of depth to water
+  group_by(id) %>%
+  summarise(dtw = min(well_depth_va)-0.5)
+for(i in 1:nrow(mls)){zt$lev_va[zt$id==mls$id[i]] = mls$dtw[i]}
+zt <- zt %>%
+  mutate(satdepth = well_depth_va - lev_va)
+
+# means over shallow sample depths (<10 ft below water table) at each location, single time
+zmean <- zt %>%
+  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
+  filter(satdepth < 10) %>%                   
+  group_by(id, parm_cd) %>%
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1))
+
+# means over shallow sample depths (<10 ft below water table) at each location, time series
+tsmean <- alldata %>%
+  filter(site_no %in% sn) %>%
+  group_by(id, sample_dt, param) %>%
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1), treatment=first(treatment))
+  
+
+# max over sample depths at each location
+zmax <- zt %>%
+  group_by(id, parm_cd) %>%
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=max(result_va, na.rm=TRUE))
+
+# calculate percentages of N in different forms
+ftn <- pivot_wider(zt, id_cols = c(id, site_no:dec_long_va, well_depth_va), names_from = param, values_from = result_va)%>%
+  filter(!is.na(TN)) %>%
+  mutate(percent_organicN = round(100*(1 - ((NH34+NO23)/TN)), 1), percent_NO23 = round(100*NO23/TN, 1))
+
+kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 2)
+
+```
+
+$~$
+
+$~$
+
+### 4. Map water quality parameters and depth to water
+
+$~$
+
+```{r}
+
+# function to make the maps
+mapparam <- function(data, palette, title){
+  leaflet(data, options = leafletOptions(zoomControl = FALSE)) %>%
+  addProviderTiles('Esri.WorldTopoMap')%>%
+  addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
+                   fillOpacity = 1, fillColor = ~pal(result_va),
+                   popup = ~paste(station_nm,"<br>","Value",result_va,"<br>","<a href='"
+                                  , weblink
+                                  , "' target='_blank'>"
+                                  , "Link to data</a>")) %>%
+  addScaleBar("bottomright") %>%
+  addLegend(pal = palette, title = title, opacity = 1, values = ~result_va, position = "topleft")
+}
+
+```
+
+
+### 4a. Mean parameter values
+
+- data from September, 2021
+- mean of samples at location (one or more depths in top 10ft below water table)
+- exclusions: A517-0036
+
+```{r, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
+z <- zmean
+
+ttl <- "Temp (°C)"
+mapdata <- z %>% filter(parm_cd == temp)
+pal <- colorNumeric("viridis", domain = mapdata$result_va)
+m1 <- mapparam(mapdata, pal, ttl)
+#m1
+
+ttl <- "SpC (uS/cm)"
+mapdata <- z %>% filter(parm_cd == sc)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m2 <- mapparam(mapdata, pal, ttl)
+#m2
+
+ttl = "pH"
+mapdata <- z %>% filter(parm_cd == ph)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m3 <- mapparam(mapdata, pal, ttl)
+#m3
+
+ttl = "DO (mg/L)"
+mapdata <- z %>% filter(parm_cd == do)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m4 <- mapparam(mapdata, pal, ttl)
+#m4
+
+ttl = "Nitrate, as N <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == no3)
+pal <- colorBin("viridis", domain = mapdata$result_va)     
+m5 <- mapparam(mapdata, pal, ttl)
+#m5
+
+ttl = "NH34, as N <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == nh34)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m6 <- mapparam(mapdata, pal, ttl)
+#m6
+
+ttl = "Total N (mg/L)"
+mapdata <- z %>% filter(parm_cd == tn)
+pal <- colorBin("viridis",  domain = mapdata$result_va)   
+m7 <- mapparam(mapdata, pal, ttl)
+#m7
+
+ttl = "Phosphate, as P <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == po4)
+pal <- colorBin("viridis", domain = mapdata$result_va)    
+m8 <- mapparam(mapdata, pal, ttl)
+#m8
+
+# map depth to water
+pal <- colorNumeric("viridis", domain = dtw$lev_va)
+m9 <- leaflet(dtw, options = leafletOptions(zoomControl = FALSE)) %>%
+  addProviderTiles('Esri.WorldTopoMap')%>%
+  addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
+                 fillOpacity = 1, fillColor = ~pal(lev_va),
+                 popup = ~paste(station_nm,"<br>","Value",lev_va,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
+  addScaleBar("bottomright") %>%
+  addLegend(pal = pal, title = "Depth to water", opacity = 1, values = ~lev_va, position = "topleft")
+
+sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
+```
+
+$~$
+
+<br>
+
+$~$
+
+### 4b. Maximum parameter values
+- data from September, 2021
+- max of samples at location (one or more depths)
+
+$~$
+
+```{r, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
+z <- zmax
+
+ttl <- "Temp (°C)"
+mapdata <- z %>% filter(parm_cd == temp)
+pal <- colorNumeric("viridis", domain = mapdata$result_va)
+m1 <- mapparam(mapdata, pal, ttl)
+#m1
+
+ttl <- "SpC (uS/cm)"
+mapdata <- z %>% filter(parm_cd == sc)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m2 <- mapparam(mapdata, pal, ttl)
+#m2
+
+ttl = "pH"
+mapdata <- z %>% filter(parm_cd == ph)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m3 <- mapparam(mapdata, pal, ttl)
+#m3
+
+ttl = "DO (mg/L)"
+mapdata <- z %>% filter(parm_cd == do)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m4 <- mapparam(mapdata, pal, ttl)
+#m4
+
+ttl = "Nitrate, as N <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == no3)
+pal <- colorBin("viridis", domain = mapdata$result_va)     
+m5 <- mapparam(mapdata, pal, ttl)
+#m5
+
+ttl = "NH34, as N <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == nh34)
+pal <- colorBin("viridis", domain = mapdata$result_va)
+m6 <- mapparam(mapdata, pal, ttl)
+#m6
+
+ttl = "Total N (mg/L)"
+mapdata <- z %>% filter(parm_cd == tn)
+pal <- colorBin("viridis",  domain = mapdata$result_va)   
+m7 <- mapparam(mapdata, pal, ttl)
+#m7
+
+ttl = "Phosphate, as P <br> (mg/L)"
+mapdata <- z %>% filter(parm_cd == po4)
+pal <- colorBin("viridis", domain = mapdata$result_va)    
+m8 <- mapparam(mapdata, pal, ttl)
+#m8
+
+
+sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
+```
+
+$~$
+
+<br>
+
+$~$
+
+### 5. Plot time series 
+
+$~$
+
+```{r, eval = TRUE, include = TRUE}
+ttl = "Nitrate, as N, (mg/L) in wells (and pond)"
+p <- ggplot(alldata %>% filter(site_tp_cd %in% c("well cluster", "water table well", "surface water (pond)")) %>% filter(parm_cd==no3), aes(x = sample_dt, y = result_va)) +
+  geom_point(aes(color=station_nm)) +
+  geom_line(aes(color=station_nm)) +
+  theme_bw()+ 
+  ggtitle(ttl) 
+
+ggplotly(p)
+
+ttl = "Nitrate, as N, (mg/L) in multilevel samplers"
+p <- ggplot(alldata %>% filter(site_tp_cd %in% c("multilevel sampler (MLS)")) %>% filter(parm_cd==no3), aes(x = sample_dt, y = result_va)) +
+  geom_point(aes(color=station_nm)) +
+  geom_line(aes(color=station_nm)) +
+  theme_bw()+ 
+  ggtitle(ttl) 
+
+ggplotly(p)
+
+ttl = "Nitrate, as N, (mg/L) shallow wells, by treatment area"
+p <- ggplot(alldata %>% filter(site_no %in% sn & param=="NO3"), aes(x = sample_dt, y = result_va, group = station_nm)) +
+  geom_point(aes(color = treatment)) +
+  geom_line(aes(color = treatment)) +
+  theme_bw()+ 
+  ggtitle(ttl) 
+
+ggplotly(p)
+
+ttl = "Nitrate, as N, (mg/L) shallow wells (mean for site), by treatment area"
+p <- ggplot(tsmean %>% filter(param=="NO3"), aes(x = sample_dt, y = result_va, group = station_nm)) +
+  geom_point(aes(color = treatment)) +
+  geom_line(aes(color = treatment)) +
+  theme_bw()+ 
+  ggtitle(ttl) 
+
+ggplotly(p)
+
+
+```
+
+$~$
+
+### 6. Plot vertical profiles
+
+$~$
+
+```{r, eval = TRUE, include = TRUE}
+
+parameters <- c( "SpC", "NO3")  #"DO", "pH",  "delO", "temp"
+
+profiledata <- alldata %>% 
+  filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>%
+  filter(param %in% parameters) %>%
+  mutate(date = as.character(sample_dt)) %>%
+  mutate(result_va = ifelse(param == "SpC", result_va/10, result_va)) %>%
+  mutate(param = replace(param, param == "SpC", "SpC/10")) %>%
+  arrange(id)
+           
+xr <- c(0, 50)
+yr <- c(80, 0)
+
+# function to make vertical profiles
+zprofile <- function(data, title, xrange, yrange){
+  p <- ggplot(data %>% group_by(sample_dt), aes(x = result_va, y = well_depth_va)) +
+    geom_path(aes(color = param, linetype = date))+
+    scale_x_continuous(limits = xrange)+
+    theme_bw()+ 
+    scale_y_reverse(limits = yrange)+
+    ggtitle(title) 
+  ggplotly(p) 
+}
+
+# iterated over sites
+p <- htmltools::tagList()
+
+for (i in unique(profiledata$id)){
+  
+  a <- filter(profiledata, id == i) 
+  if(i==508){a <- filter(a, site_tp_cd == "multilevel sampler (MLS)")}
+  ttl <- paste0(a$site_tp_cd[1], " at ", i)
+  p[[i]] <- zprofile(a, ttl, xr, yr)
+  
+}
+p
+
+```
