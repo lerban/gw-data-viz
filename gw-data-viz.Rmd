@@ -69,9 +69,6 @@ impacts <- c(517,522,523,524,525,526)
 siteinfo$treatment[which(siteinfo$id %in% impacts)] <- "impact"
 siteinfo$treatment[siteinfo$id == 509] <- "other"
 
-# site numbers within 10ft of water table (as of Sept, 2021)
-sn <- c("414010070235201", "414015070235001", "414015070235002", "414015070235301", "414015070235303", "414016070235001", "414016070235002", "414016070235101", "414016070235102", "414016070235103", "414017070235004", "414017070235005", "414017070235006", "414017070235008", "414017070235010", "414018070235103", "414018070235104", "414018070235106", "414018070235108", "414018070235110", "414020070234801", "414020070240501", "414021070235201", "414024070234804", "414024070234805", "414024070234807", "414025070235201", "414032070234601")
-
 ```
 
 ```{r}
@@ -141,19 +138,20 @@ b <- data %>% dplyr::select(c(site_no, sample_dt, sample_tm, parm_cd, result_va)
 a <- siteinfo 
 a$station_nm[grep("SHUBAEL", a$station_nm)] <- "SHUBAEL POND"
 alldata <- right_join(a,b) %>%
-  mutate(param = parm_cd)
+  rename(date = sample_dt) %>%
+  mutate(param = parm_cd, yearmon = format(date, "%Y-%m")) 
 
-# create param names from codes
+# create param names from codes 
 alldata$param <- dplyr::recode(alldata$param, `00010` = "temp", `00095` = "SpC", `00400` = "pH", `00300` = "DO", `00608` = "NH34", `00613` = "NO2", `00618` = "NO3", `00631` = "NO23", `62854` = "TN", `00671` = "PO4", `82082` = "delH", `82085` = "delO")
 
 # pull water levels data
-gwl <- readNWISgwl(siteNumbers = siteinfo$site_no)%>%
-  filter(lev_dt > "2021-09-01") 
+gwl <- readNWISgwl(siteNumbers = siteinfo$site_no) 
 
 # join site info
 dtw <- gwl %>%
   filter(!is.na(lev_va))
-dtw <- right_join(siteinfo %>% dplyr::select(station_nm, site_no, id, dec_lat_va, dec_long_va, alt_va, well_depth_va, weblink), dtw) 
+dtw <- right_join(siteinfo %>% dplyr::select(station_nm, site_no, id, dec_lat_va, dec_long_va, alt_va, well_depth_va, weblink), dtw)%>%
+  rename(date = lev_dt)
 
 ```
 
@@ -175,18 +173,18 @@ allsum <- left_join(allsum, nwells) %>%
   dplyr::select(id, depths, temp, SpC, pH, DO, NH34:NO3, TN) %>%
   arrange(depths)
 
-# subset data for a specific sampling event
-zt <- alldata %>%
-  dplyr::filter(sample_dt > "2021-09-01") 
-
 # estimate depth below water table (satdepth) for each sample  
-zt <- left_join(zt, dtw %>% select(c(site_no, lev_va)))             # first, join depth to water
-mls <- zt %>% filter(site_tp_cd == "multilevel sampler (MLS)") %>%  # for mls, assign depth of most shallow sampled port, -0.5ft, as estimate of depth to water
+alldata <- left_join(alldata, dtw %>% select(c(date, site_no, lev_va)))        # first, join depth to water
+mls <- alldata %>% filter(site_tp_cd == "multilevel sampler (MLS)") %>%  # for mls, assign depth of most shallow sampled port, -0.5ft, as estimate of depth to water
   group_by(id) %>%
   summarise(dtw = min(well_depth_va)-0.5)
-for(i in 1:nrow(mls)){zt$lev_va[zt$id==mls$id[i]] = mls$dtw[i]}
-zt <- zt %>%
+for(i in 1:nrow(mls)){alldata$lev_va[alldata$id==mls$id[i]] = mls$dtw[i]}
+alldata <- alldata %>%
   mutate(satdepth = well_depth_va - lev_va)
+
+# subset data for a specific sampling event
+zt <- alldata %>%
+  dplyr::filter(date > "2021-09-01") 
 
 # means over shallow sample depths (<10 ft below water table) at each location, single time
 zmean <- zt %>%
@@ -197,10 +195,10 @@ zmean <- zt %>%
 
 # means over shallow sample depths (<10 ft below water table) at each location, time series
 tsmean <- alldata %>%
-  filter(site_no %in% sn) %>%
-  group_by(id, sample_dt, param) %>%
+  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
+  filter(satdepth < 10) %>%
+  group_by(id, yearmon, param) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1), treatment=first(treatment))
-  
 
 # max over sample depths at each location
 zmax <- zt %>%
@@ -391,26 +389,26 @@ $~$
 $~$
 
 ```{r, eval = TRUE, include = TRUE}
-ttl = "Nitrate, as N, (mg/L) in wells (and pond)"
-p <- ggplot(alldata %>% filter(site_tp_cd %in% c("well cluster", "water table well", "surface water (pond)")) %>% filter(parm_cd==no3), aes(x = sample_dt, y = result_va)) +
-  geom_point(aes(color=station_nm)) +
-  geom_line(aes(color=station_nm)) +
+ttl = "Nitrate, as N, (mg/L) in groundwater wells and pond"
+p <- ggplot(alldata %>% filter(site_tp_cd %in% c("well cluster", "water table well", "surface water (pond)")) %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
+  geom_point(aes(color=id)) +
+  geom_line(aes(color=id)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
 ggplotly(p)
 
-ttl = "Nitrate, as N, (mg/L) in multilevel samplers"
-p <- ggplot(alldata %>% filter(site_tp_cd %in% c("multilevel sampler (MLS)")) %>% filter(parm_cd==no3), aes(x = sample_dt, y = result_va)) +
-  geom_point(aes(color=station_nm)) +
-  geom_line(aes(color=station_nm)) +
+ttl = "Nitrate, as N, (mg/L) in multilevel groundwater samplers (MLS)"
+p <- ggplot(alldata %>% filter(site_tp_cd %in% c("multilevel sampler (MLS)")) %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
+  geom_point(aes(color=id)) +
+  geom_line(aes(color=id)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
 ggplotly(p)
 
-ttl = "Nitrate, as N, (mg/L) shallow wells, by treatment area"
-p <- ggplot(alldata %>% filter(site_no %in% sn & param=="NO3"), aes(x = sample_dt, y = result_va, group = station_nm)) +
+ttl = "Nitrate, as N, (mg/L) in wells and MLS ports"
+p <- ggplot(alldata %>% filter(param=="NO3" & !is.na(treatment)), aes(x = date, y = result_va, group = station_nm)) +
   geom_point(aes(color = treatment)) +
   geom_line(aes(color = treatment)) +
   theme_bw()+ 
@@ -418,15 +416,14 @@ p <- ggplot(alldata %>% filter(site_no %in% sn & param=="NO3"), aes(x = sample_d
 
 ggplotly(p)
 
-ttl = "Nitrate, as N, (mg/L) shallow wells (mean for site), by treatment area"
-p <- ggplot(tsmean %>% filter(param=="NO3"), aes(x = sample_dt, y = result_va, group = station_nm)) +
+ttl = "Mean nitrate, as N, (mg/L) w/in 10ft of water table"
+p <- ggplot(tsmean %>% filter(param=="NO3" & !is.na(treatment)), aes(x = yearmon, y = result_va, group = station_nm)) +
   geom_point(aes(color = treatment)) +
   geom_line(aes(color = treatment)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
 ggplotly(p)
-
 
 ```
 
@@ -443,7 +440,7 @@ parameters <- c( "SpC", "NO3")  #"DO", "pH",  "delO", "temp"
 profiledata <- alldata %>% 
   filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>%
   filter(param %in% parameters) %>%
-  mutate(date = as.character(sample_dt)) %>%
+  mutate(date = as.character(date)) %>%
   mutate(result_va = ifelse(param == "SpC", result_va/10, result_va)) %>%
   mutate(param = replace(param, param == "SpC", "SpC/10")) %>%
   arrange(id)
@@ -453,7 +450,7 @@ yr <- c(80, 0)
 
 # function to make vertical profiles
 zprofile <- function(data, title, xrange, yrange){
-  p <- ggplot(data %>% group_by(sample_dt), aes(x = result_va, y = well_depth_va)) +
+  p <- ggplot(data %>% group_by(date), aes(x = result_va, y = well_depth_va)) +
     geom_path(aes(color = param, linetype = date))+
     scale_x_continuous(limits = xrange)+
     theme_bw()+ 
