@@ -170,7 +170,7 @@ allsum <- alldata %>%
   pivot_wider(id_cols = id, names_from = param, values_from = count)
 
 allsum <- left_join(allsum, nwells) %>%
-  dplyr::select(id, depths, temp, SpC, pH, DO, NH34:NO3, TN) %>%
+  dplyr::select(id, depths, temp, SpC, pH, DO, PO4, NH34:NO3, TN) %>%
   arrange(depths)
 
 # estimate depth below water table (satdepth) for each sample  
@@ -183,20 +183,31 @@ alldata <- alldata %>%
   mutate(satdepth = well_depth_va - lev_va)
 
 # subset data for a specific sampling event
+mapdate <- "2021-11-01"
 zt <- alldata %>%
-  dplyr::filter(date > "2021-09-01") 
+  dplyr::filter(date > mapdate)
 
-# means over shallow sample depths (<10 ft below water table) at each location, single time
+# number of depths and samples at each location, by parameter
+ztsum <- zt %>% 
+  group_by(id, param) %>%
+  summarise(count = n()) %>%
+  pivot_wider(id_cols = id, names_from = param, values_from = count)
+
+ztsum <- left_join(ztsum, nwells) %>%
+  dplyr::select(id, depths, temp, SpC, pH, DO, PO4, NH34:NO3, TN) %>%
+  arrange(depths)
+
+# means at each location, single time
 zmean <- zt %>%
   filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
-  filter(satdepth < 10) %>%                   
+  #filter(satdepth < 10) %>%                   
   group_by(id, parm_cd) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1))
 
-# means over shallow sample depths (<10 ft below water table) at each location, time series
+# means at each location, time series
 tsmean <- alldata %>%
   filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
-  filter(satdepth < 10) %>%
+  #filter(satdepth < 10) %>%
   group_by(id, yearmon, param) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1), treatment=first(treatment))
 
@@ -243,8 +254,8 @@ mapparam <- function(data, palette, title){
 
 ### 4a. Mean parameter values
 
-- data from September, 2021
-- mean of samples at location (one or more depths in top 10ft below water table)
+- data from November, 2021
+- mean of samples at location (all depths sampled)
 - exclusions: A517-0036
 
 ```{r, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
@@ -300,7 +311,7 @@ m8 <- mapparam(mapdata, pal, ttl)
 
 # map depth to water
 pal <- colorNumeric("viridis", domain = dtw$lev_va)
-m9 <- leaflet(dtw, options = leafletOptions(zoomControl = FALSE)) %>%
+m9 <- leaflet(dtw %>% filter(date > mapdate), options = leafletOptions(zoomControl = FALSE)) %>%
   addProviderTiles('Esri.WorldTopoMap')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                  fillOpacity = 1, fillColor = ~pal(lev_va),
@@ -318,7 +329,7 @@ $~$
 $~$
 
 ### 4b. Maximum parameter values
-- data from September, 2021
+- data from November, 2021
 - max of samples at location (one or more depths)
 
 $~$
@@ -416,7 +427,7 @@ p <- ggplot(alldata %>% filter(param=="NO3" & !is.na(treatment)), aes(x = date, 
 
 ggplotly(p)
 
-ttl = "Mean nitrate, as N, (mg/L) w/in 10ft of water table"
+ttl = "Mean nitrate, as N, (mg/L) at site"
 p <- ggplot(tsmean %>% filter(param=="NO3" & !is.na(treatment)), aes(x = yearmon, y = result_va, group = station_nm)) +
   geom_point(aes(color = treatment)) +
   geom_line(aes(color = treatment)) +
@@ -434,15 +445,18 @@ $~$
 $~$
 
 ```{r, eval = TRUE, include = TRUE}
+profdate <- "2021-06-01"
 
-parameters <- c( "SpC", "NO3")  #"DO", "pH",  "delO", "temp"
+parameters <- c( "NO3")  #"DO", "pH",  "delO", "temp",  "SpC"
 
 profiledata <- alldata %>% 
   filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>%
   filter(param %in% parameters) %>%
-  mutate(date = as.character(date)) %>%
-  mutate(result_va = ifelse(param == "SpC", result_va/10, result_va)) %>%
-  mutate(param = replace(param, param == "SpC", "SpC/10")) %>%
+  filter(date > profdate) %>%
+  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
+  #mutate(date = as.character(date)) %>%
+  #mutate(result_va = ifelse(param == "SpC", result_va/10, result_va)) %>%
+  #mutate(param = replace(param, param == "SpC", "SpC/10")) %>%
   arrange(id)
            
 xr <- c(0, 50)
@@ -450,11 +464,11 @@ yr <- c(80, 0)
 
 # function to make vertical profiles
 zprofile <- function(data, title, xrange, yrange){
-  p <- ggplot(data %>% group_by(date), aes(x = result_va, y = well_depth_va)) +
-    geom_path(aes(color = param, linetype = date))+
-    scale_x_continuous(limits = xrange)+
+  p <- ggplot(data %>% group_by(yearmon), aes(x = result_va, y = well_depth_va)) +
+    geom_path(aes(color = yearmon, linetype = yearmon))+
+    scale_x_continuous()+ #limits = xrange
     theme_bw()+ 
-    scale_y_reverse(limits = yrange)+
+    scale_y_reverse()+ #limits = yrange
     ggtitle(title) 
   ggplotly(p) 
 }
