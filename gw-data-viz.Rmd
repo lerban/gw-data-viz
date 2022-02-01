@@ -193,12 +193,12 @@ ztsum <- left_join(ztsum, nwells) %>%
 # means at each location, single time
 zmean <- zt %>%
   group_by(id, parm_cd) %>%
-  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1))
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 3))
 
 # means at each location, time series
 tsmean <- alldata %>%
   group_by(id, yearmon, param) %>%
-  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1), treatment=first(treatment))
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 3), treatment=first(treatment))
 
 # max over sample depths at each location
 zmax <- zt %>%
