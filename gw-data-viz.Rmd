@@ -49,7 +49,9 @@ sites <- whatNWISsites(bBox = c(-70.405, 41.669, -70.395, 41.677))
 baseurl1 <- "https://nwis.waterdata.usgs.gov/usa/nwis/qwdata/?site_no="
 baseurl2 <-  "&agency_cd=USGS"
 
-siteinfo <- readNWISsite(sites$site_no) %>%
+siteinfo <- readNWISsite(sites$site_no) 
+#comment(siteinfo)
+siteinfo <- siteinfo %>%
   dplyr::select(site_no, station_nm, site_tp_cd, dec_lat_va, dec_long_va, dec_coord_datum_cd, alt_va, alt_datum_cd, well_depth_va)%>%
   mutate(id = substr(station_nm, 9, 11)) %>%
   mutate(weblink = paste(baseurl1,site_no,baseurl2,sep = " "))
@@ -173,15 +175,6 @@ allsum <- left_join(allsum, nwells) %>%
   dplyr::select(id, depths, temp, SpC, pH, DO, PO4, NH34:NO3, TN) %>%
   arrange(depths)
 
-# estimate depth below water table (satdepth) for each sample  
-alldata <- left_join(alldata, dtw %>% select(c(date, site_no, lev_va)))        # first, join depth to water
-mls <- alldata %>% filter(site_tp_cd == "multilevel sampler (MLS)") %>%  # for mls, assign depth of most shallow sampled port, -0.5ft, as estimate of depth to water
-  group_by(id) %>%
-  summarise(dtw = min(well_depth_va)-0.5)
-for(i in 1:nrow(mls)){alldata$lev_va[alldata$id==mls$id[i]] = mls$dtw[i]}
-alldata <- alldata %>%
-  mutate(satdepth = well_depth_va - lev_va)
-
 # subset data for a specific sampling event
 mapdate <- "2021-11-01"
 zt <- alldata %>%
@@ -199,15 +192,11 @@ ztsum <- left_join(ztsum, nwells) %>%
 
 # means at each location, single time
 zmean <- zt %>%
-  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
-  #filter(satdepth < 10) %>%                   
   group_by(id, parm_cd) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1))
 
 # means at each location, time series
 tsmean <- alldata %>%
-  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
-  #filter(satdepth < 10) %>%
   group_by(id, yearmon, param) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 1), treatment=first(treatment))
 
@@ -256,7 +245,6 @@ mapparam <- function(data, palette, title){
 
 - data from November, 2021
 - mean of samples at location (all depths sampled)
-- exclusions: A517-0036
 
 ```{r, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
 z <- zmean
@@ -487,3 +475,8 @@ for (i in unique(profiledata$id)){
 p
 
 ```
+
+
+
+
+
