@@ -63,14 +63,6 @@ siteinfo$site_tp_cd[grepl(clust, siteinfo$station_nm)] <- "well cluster"
 siteinfo$site_tp_cd[which(siteinfo$site_tp_cd=="GW")] <- "water table well"
 siteinfo$site_tp_cd[which(siteinfo$site_tp_cd=="LK")] <- "surface water (pond)"
 
-# add a treatment variable
-siteinfo$treatment <- NA
-controls <- c(505,508,514,515,520,521)
-siteinfo$treatment[which(siteinfo$id %in% controls)] <- "control"
-impacts <- c(517,522,523,524,525,526)
-siteinfo$treatment[which(siteinfo$id %in% impacts)] <- "impact"
-siteinfo$treatment[siteinfo$id == 509] <- "other"
-
 ```
 
 ```{r}
@@ -84,17 +76,6 @@ leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
                  popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
   addScaleBar("bottomright") %>%
   addLegend(pal = pal, title = "Site type", opacity = 1, values = ~site_tp_cd, position = "topleft")
-
-# map all sites by treatment
-pal <- colorFactor("Accent", domain = siteinfo$treatment)
-
-leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
-  addProviderTiles('Esri.WorldTopoMap')%>%
-  addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
-                 fillOpacity = 1, fillColor = ~pal(treatment),
-                 popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
-  addScaleBar("bottomright") %>%
-  addLegend(pal = pal, title = "Treatment", opacity = 1, values = ~treatment, position = "topleft")
 
 ```
 
@@ -153,7 +134,8 @@ gwl <- readNWISgwl(siteNumbers = siteinfo$site_no)
 dtw <- gwl %>%
   filter(!is.na(lev_va))
 dtw <- right_join(siteinfo %>% dplyr::select(station_nm, site_no, id, dec_lat_va, dec_long_va, alt_va, well_depth_va, weblink), dtw)%>%
-  rename(date = lev_dt)
+  rename(date = lev_dt) %>%
+  mutate(yearmon = format(date, "%Y-%m"))
 
 ```
 
@@ -176,9 +158,9 @@ allsum <- left_join(allsum, nwells) %>%
   arrange(depths)
 
 # subset data for a specific sampling event
-mapdate <- "2021-11-01"
+ym <- "2021-11"
 zt <- alldata %>%
-  dplyr::filter(date > mapdate)
+  dplyr::filter(yearmon == ym)
 
 # number of depths and samples at each location, by parameter
 ztsum <- zt %>% 
@@ -198,12 +180,16 @@ zmean <- zt %>%
 # means at each location, time series
 tsmean <- alldata %>%
   group_by(id, yearmon, param) %>%
-  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 3), treatment=first(treatment))
+  summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=round(mean(result_va, na.rm=TRUE), 3))
 
 # max over sample depths at each location
 zmax <- zt %>%
   group_by(id, parm_cd) %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=max(result_va, na.rm=TRUE))
+```
+
+#### Snapshot from 2021-Nov sampling 
+```{r}
 
 # calculate percentages of N in different forms
 ftn <- pivot_wider(zt, id_cols = c(id, site_no:dec_long_va, well_depth_va), names_from = param, values_from = result_va)%>%
@@ -226,7 +212,7 @@ $~$
 
 # function to make the maps
 mapparam <- function(data, palette, title){
-  leaflet(data, options = leafletOptions(zoomControl = FALSE)) %>%
+  leaflet(data, options = leafletOptions(zoomControl = TRUE, attributionControl=FALSE)) %>%
   addProviderTiles('Esri.WorldTopoMap')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                    fillOpacity = 1, fillColor = ~pal(result_va),
@@ -235,7 +221,7 @@ mapparam <- function(data, palette, title){
                                   , "' target='_blank'>"
                                   , "Link to data</a>")) %>%
   addScaleBar("bottomright") %>%
-  addLegend(pal = palette, title = title, opacity = 1, values = ~result_va, position = "topleft")
+  addLegend(pal = palette, title = title, opacity = 1, values = ~result_va, position = "bottomleft")
 }
 
 ```
@@ -299,22 +285,22 @@ m8 <- mapparam(mapdata, pal, ttl)
 
 # map depth to water
 pal <- colorNumeric("viridis", domain = dtw$lev_va)
-m9 <- leaflet(dtw %>% filter(date > mapdate), options = leafletOptions(zoomControl = FALSE)) %>%
+m9 <- leaflet(dtw %>% filter(yearmon == ym), options = leafletOptions(zoomControl = FALSE, attributionControl=FALSE)) %>%
   addProviderTiles('Esri.WorldTopoMap')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                  fillOpacity = 1, fillColor = ~pal(lev_va),
                  popup = ~paste(station_nm,"<br>","Value",lev_va,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
   addScaleBar("bottomright") %>%
-  addLegend(pal = pal, title = "Depth to water", opacity = 1, values = ~lev_va, position = "topleft")
+  addLegend(pal = pal, title = "Depth to water", opacity = 1, values = ~lev_va, position = "bottomleft")
 
 sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
+
 ```
 
-$~$
-
-<br>
-
-$~$
+```{r} 
+b = 0
+    
+```
 
 ### 4b. Maximum parameter values
 - data from November, 2021
@@ -373,15 +359,19 @@ pal <- colorBin("viridis", domain = mapdata$result_va)
 m8 <- mapparam(mapdata, pal, ttl)
 #m8
 
-
 sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
+
+
 ```
 
-$~$
 
-<br>
+`$~$
 
-$~$
+
+```{r}
+b = 0   
+```
+
 
 ### 5. Plot time series 
 
@@ -389,36 +379,18 @@ $~$
 
 ```{r, eval = TRUE, include = TRUE}
 ttl = "Nitrate, as N, (mg/L) in groundwater wells and pond"
-p <- ggplot(alldata %>% filter(site_tp_cd %in% c("well cluster", "water table well", "surface water (pond)")) %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
+p <- ggplot(alldata %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
   geom_point(aes(color=id)) +
   geom_line(aes(color=id)) +
-  theme_bw()+ 
-  ggtitle(ttl) 
-
-ggplotly(p)
-
-ttl = "Nitrate, as N, (mg/L) in multilevel groundwater samplers (MLS)"
-p <- ggplot(alldata %>% filter(site_tp_cd %in% c("multilevel sampler (MLS)")) %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
-  geom_point(aes(color=id)) +
-  geom_line(aes(color=id)) +
-  theme_bw()+ 
-  ggtitle(ttl) 
-
-ggplotly(p)
-
-ttl = "Nitrate, as N, (mg/L) in wells and MLS ports"
-p <- ggplot(alldata %>% filter(param=="NO3" & !is.na(treatment)), aes(x = date, y = result_va, group = station_nm)) +
-  geom_point(aes(color = treatment)) +
-  geom_line(aes(color = treatment)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
 ggplotly(p)
 
 ttl = "Mean nitrate, as N, (mg/L) at site"
-p <- ggplot(tsmean %>% filter(param=="NO3" & !is.na(treatment)), aes(x = yearmon, y = result_va, group = station_nm)) +
-  geom_point(aes(color = treatment)) +
-  geom_line(aes(color = treatment)) +
+p <- ggplot(tsmean %>% filter(param=="NO3"), aes(x = yearmon, y = result_va, group = station_nm)) +
+  geom_point(aes(color = id)) +
+  geom_line(aes(color = id)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
@@ -433,46 +405,23 @@ $~$
 $~$
 
 ```{r, eval = TRUE, include = TRUE}
-profdate <- "2021-06-01"
+ttl = "NO3-N (mg/L) vertical profiles"
 
-parameters <- c( "NO3")  #"DO", "pH",  "delO", "temp",  "SpC"
+a <- alldata %>% filter(parm_cd==no3) %>% 
+  filter(id %in% c(508, 517, 522, 523, 524, 525)) %>% 
+  filter(station_nm != "MA-A1W  517-0036")  # duplicate well @ 517
 
-profiledata <- alldata %>% 
-  filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>%
-  filter(param %in% parameters) %>%
-  filter(date > profdate) %>%
-  filter(!station_nm=="MA-A1W  517-0036") %>%  # remove duplicate shallow well at A517
-  #mutate(date = as.character(date)) %>%
-  #mutate(result_va = ifelse(param == "SpC", result_va/10, result_va)) %>%
-  #mutate(param = replace(param, param == "SpC", "SpC/10")) %>%
-  arrange(id)
-           
-xr <- c(0, 50)
-yr <- c(80, 0)
+p <- ggplot(a, aes(x = result_va, y = well_depth_va)) +
+  geom_path(aes(color = yearmon))+
+  facet_wrap(~id, scales = "free", ncol = 3)+ 
+  theme(panel.spacing.x = unit(.25, "cm"), panel.spacing.y = unit(.5, "cm")) +
+  #theme_bw() + 
+  scale_y_reverse()+ #limits = yrange
+  ggtitle(ttl)
 
-# function to make vertical profiles
-zprofile <- function(data, title, xrange, yrange){
-  p <- ggplot(data %>% group_by(yearmon), aes(x = result_va, y = well_depth_va)) +
-    geom_path(aes(color = yearmon, linetype = yearmon))+
-    scale_x_continuous()+ #limits = xrange
-    theme_bw()+ 
-    scale_y_reverse()+ #limits = yrange
-    ggtitle(title) 
-  ggplotly(p) 
-}
+ggplotly(p)
 
-# iterated over sites
-p <- htmltools::tagList()
 
-for (i in unique(profiledata$id)){
-  
-  a <- filter(profiledata, id == i) 
-  if(i==508){a <- filter(a, site_tp_cd == "multilevel sampler (MLS)")}
-  ttl <- paste0(a$site_tp_cd[1], " at ", i)
-  p[[i]] <- zprofile(a, ttl, xr, yr)
-  
-}
-p
 
 ```
 
