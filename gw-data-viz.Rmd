@@ -70,7 +70,7 @@ siteinfo$site_tp_cd[which(siteinfo$site_tp_cd=="LK")] <- "surface water (pond)"
 pal <- colorFactor("Accent", domain = siteinfo$site_tp_cd)
 
 leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
-  addProviderTiles('Esri.WorldTopoMap')%>%
+  addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                  fillOpacity = 1, fillColor = ~pal(site_tp_cd),
                  popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
@@ -158,9 +158,10 @@ allsum <- left_join(allsum, nwells) %>%
   arrange(depths)
 
 # subset data for a specific sampling event
-ym <- "2021-11"
+ym <- "2022-03"
 zt <- alldata %>%
-  dplyr::filter(yearmon == ym)
+  #dplyr::filter(yearmon == ym)
+  dplyr::filter(date > "2022-03-05")
 
 # number of depths and samples at each location, by parameter
 ztsum <- zt %>% 
@@ -188,7 +189,7 @@ zmax <- zt %>%
   summarise(station_nm=first(id), dec_lat_va=median(dec_lat_va), dec_long_va=median(dec_long_va), weblink=first(weblink), well_depth_va=mean(well_depth_va, na.rm=TRUE), result_va=max(result_va, na.rm=TRUE))
 ```
 
-#### Snapshot from 2021-Nov sampling 
+
 ```{r}
 
 # calculate percentages of N in different forms
@@ -196,7 +197,7 @@ ftn <- pivot_wider(zt, id_cols = c(id, site_no:dec_long_va, well_depth_va), name
   filter(!is.na(TN)) %>%
   mutate(percent_organicN = round(100*(1 - ((NH34+NO23)/TN)), 1), percent_NO23 = round(100*NO23/TN, 1))
 
-kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 2)
+kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 2, caption = paste0("Snapshot of ", ym, " sampling results"))
 
 ```
 
@@ -227,10 +228,8 @@ mapparam <- function(data, palette, title){
 ```
 
 
-### 4a. Mean parameter values
+### 4a. Mean values at each location for depths sampled in `r ym`
 
-- data from November, 2021
-- mean of samples at location (all depths sampled)
 
 ```{r, eval = TRUE, include = TRUE, message=FALSE, warning=FALSE}
 z <- zmean
@@ -286,7 +285,7 @@ m8 <- mapparam(mapdata, pal, ttl)
 # map depth to water
 pal <- colorNumeric("viridis", domain = dtw$lev_va)
 m9 <- leaflet(dtw %>% filter(yearmon == ym), options = leafletOptions(zoomControl = FALSE, attributionControl=FALSE)) %>%
-  addProviderTiles('Esri.WorldTopoMap')%>%
+  addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                  fillOpacity = 1, fillColor = ~pal(lev_va),
                  popup = ~paste(station_nm,"<br>","Value",lev_va,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
@@ -298,13 +297,10 @@ sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
 ```
 
 ```{r} 
-b = 0
-    
+# this is a dummy chunk to separate maps from next section
 ```
 
-### 4b. Maximum parameter values
-- data from November, 2021
-- max of samples at location (one or more depths)
+### 4b. Maximum values at each location for depths sampled in `r ym`
 
 $~$
 
@@ -365,7 +361,7 @@ sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
 ```
 
 
-`$~$
+$~$
 
 
 ```{r}
@@ -382,15 +378,6 @@ ttl = "Nitrate, as N, (mg/L) in groundwater wells and pond"
 p <- ggplot(alldata %>% filter(parm_cd==no3), aes(x = date, y = result_va, group = station_nm)) +
   geom_point(aes(color=id)) +
   geom_line(aes(color=id)) +
-  theme_bw()+ 
-  ggtitle(ttl) 
-
-ggplotly(p)
-
-ttl = "Mean nitrate, as N, (mg/L) at site"
-p <- ggplot(tsmean %>% filter(param=="NO3"), aes(x = yearmon, y = result_va, group = station_nm)) +
-  geom_point(aes(color = id)) +
-  geom_line(aes(color = id)) +
   theme_bw()+ 
   ggtitle(ttl) 
 
@@ -414,7 +401,7 @@ a <- alldata %>% filter(parm_cd==no3) %>%
 p <- ggplot(a, aes(x = result_va, y = well_depth_va)) +
   geom_path(aes(color = yearmon))+
   facet_wrap(~id, scales = "free", ncol = 3)+ 
-  theme(panel.spacing.x = unit(.25, "cm"), panel.spacing.y = unit(.5, "cm")) +
+  theme(panel.spacing.x = unit(1, "cm"), panel.spacing.y = unit(2, "cm")) +
   #theme_bw() + 
   scale_y_reverse()+ #limits = yrange
   ggtitle(ttl)
