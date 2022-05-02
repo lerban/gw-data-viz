@@ -88,7 +88,7 @@ temp <- "00010"  # temperature                 (degC)
 sc <- "00095"    # SpC                         (uS/cm)
 ph <- "00400"    # pH
 do <- "00300"    # DO                          (mg/L)
-nh34 <- "00608"  # ammonia and ammonium, as N                (mg/L)
+nh34 <- "00608"  # ammonia and ammonium, as N  (mg/L)
 no2 <- "00613"   # nitrite as N                (mg/L)
 no3 <- "00618"   # nitrate as N                (mg/L)
 no23 <- "00631"  # nitrate + nitrite as N      (mg/L)
@@ -197,7 +197,7 @@ ftn <- pivot_wider(zt, id_cols = c(id, site_no:dec_long_va, well_depth_va), name
   filter(!is.na(TN)) %>%
   mutate(percent_organicN = round(100*(1 - ((NH34+NO23)/TN)), 1), percent_NO23 = round(100*NO23/TN, 1))
 
-kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 2, caption = paste0("Snapshot of ", ym, " sampling results"))
+kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 3, caption = paste0("Snapshot of ", ym, " sampling results"))
 
 ```
 
@@ -214,7 +214,7 @@ $~$
 # function to make the maps
 mapparam <- function(data, palette, title){
   leaflet(data, options = leafletOptions(zoomControl = TRUE, attributionControl=FALSE)) %>%
-  addProviderTiles('Esri.WorldTopoMap')%>%
+  addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                    fillOpacity = 1, fillColor = ~pal(result_va),
                    popup = ~paste(station_nm,"<br>","Value",result_va,"<br>","<a href='"
@@ -236,54 +236,46 @@ z <- zmean
 
 ttl <- "Temp (°C)"
 mapdata <- z %>% filter(parm_cd == temp)
-pal <- colorNumeric("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m1 <- mapparam(mapdata, pal, ttl)
-#m1
 
 ttl <- "SpC (uS/cm)"
 mapdata <- z %>% filter(parm_cd == sc)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m2 <- mapparam(mapdata, pal, ttl)
-#m2
 
 ttl = "pH"
 mapdata <- z %>% filter(parm_cd == ph)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m3 <- mapparam(mapdata, pal, ttl)
-#m3
 
 ttl = "DO (mg/L)"
 mapdata <- z %>% filter(parm_cd == do)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m4 <- mapparam(mapdata, pal, ttl)
-#m4
 
-ttl = "Nitrate, as N <br> (mg/L)"
+ttl = "NO3, as N <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == no3)
-pal <- colorBin("viridis", domain = mapdata$result_va)     
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)     
 m5 <- mapparam(mapdata, pal, ttl)
-#m5
 
 ttl = "NH34, as N <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == nh34)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m6 <- mapparam(mapdata, pal, ttl)
-#m6
 
-ttl = "Total N (mg/L)"
+ttl = "TN (mg/L)"
 mapdata <- z %>% filter(parm_cd == tn)
-pal <- colorBin("viridis",  domain = mapdata$result_va)   
+pal <- colorBin("viridis",  domain = mapdata$result_va, bins = 5)   
 m7 <- mapparam(mapdata, pal, ttl)
-#m7
 
-ttl = "Phosphate, as P <br> (mg/L)"
+ttl = "PO4, as P <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == po4)
-pal <- colorBin("viridis", domain = mapdata$result_va)    
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)    
 m8 <- mapparam(mapdata, pal, ttl)
-#m8
 
 # map depth to water
-pal <- colorNumeric("viridis", domain = dtw$lev_va)
+pal <- colorBin("viridis", domain = dtw$lev_va, bins = 5)
 m9 <- leaflet(dtw %>% filter(yearmon == ym), options = leafletOptions(zoomControl = FALSE, attributionControl=FALSE)) %>%
   addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
@@ -293,7 +285,6 @@ m9 <- leaflet(dtw %>% filter(yearmon == ym), options = leafletOptions(zoomContro
   addLegend(pal = pal, title = "Depth to water", opacity = 1, values = ~lev_va, position = "bottomleft")
 
 sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
-
 ```
 
 ```{r} 
@@ -309,55 +300,45 @@ z <- zmax
 
 ttl <- "Temp (°C)"
 mapdata <- z %>% filter(parm_cd == temp)
-pal <- colorNumeric("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m1 <- mapparam(mapdata, pal, ttl)
-#m1
 
 ttl <- "SpC (uS/cm)"
 mapdata <- z %>% filter(parm_cd == sc)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m2 <- mapparam(mapdata, pal, ttl)
-#m2
 
 ttl = "pH"
 mapdata <- z %>% filter(parm_cd == ph)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m3 <- mapparam(mapdata, pal, ttl)
-#m3
 
 ttl = "DO (mg/L)"
 mapdata <- z %>% filter(parm_cd == do)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m4 <- mapparam(mapdata, pal, ttl)
-#m4
 
-ttl = "Nitrate, as N <br> (mg/L)"
+ttl = "NO3, as N <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == no3)
-pal <- colorBin("viridis", domain = mapdata$result_va)     
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)     
 m5 <- mapparam(mapdata, pal, ttl)
-#m5
 
 ttl = "NH34, as N <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == nh34)
-pal <- colorBin("viridis", domain = mapdata$result_va)
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)
 m6 <- mapparam(mapdata, pal, ttl)
-#m6
 
-ttl = "Total N (mg/L)"
+ttl = "TN (mg/L)"
 mapdata <- z %>% filter(parm_cd == tn)
-pal <- colorBin("viridis",  domain = mapdata$result_va)   
+pal <- colorBin("viridis",  domain = mapdata$result_va, bins = 5)   
 m7 <- mapparam(mapdata, pal, ttl)
-#m7
 
-ttl = "Phosphate, as P <br> (mg/L)"
+ttl = "PO4, as P <br> (mg/L)"
 mapdata <- z %>% filter(parm_cd == po4)
-pal <- colorBin("viridis", domain = mapdata$result_va)    
+pal <- colorBin("viridis", domain = mapdata$result_va, bins = 5)    
 m8 <- mapparam(mapdata, pal, ttl)
-#m8
 
 sync(m1, m2, m3, m4, m5, m6, m7, m8, m9, ncol = 3, sync.cursor = FALSE)
-
-
 ```
 
 
