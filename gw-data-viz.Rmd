@@ -391,7 +391,7 @@ p <- ggplot(a, aes(x = result_va, y = altitude)) +
 
 ggplotly(p)
 
-ttl = "PO4-N (mg/L) in vertical profiles"
+ttl = "PO4-P (mg/L) in vertical profiles"
 
 a <- alldata %>% filter(parm_cd==po4) %>% 
   filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>% 
