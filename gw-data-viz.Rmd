@@ -54,6 +54,8 @@ siteinfo <- readNWISsite(sites$site_no)
 siteinfo <- siteinfo %>%
   dplyr::select(site_no, station_nm, site_tp_cd, dec_lat_va, dec_long_va, dec_coord_datum_cd, alt_va, alt_datum_cd, well_depth_va)%>%
   mutate(id = substr(station_nm, 9, 11)) %>%
+  mutate(name = substr(station_nm,1,11)) %>%
+  group_by(id) %>% mutate(depthsatsite = n()) %>% ungroup() %>% 
   mutate(weblink = paste(baseurl1,site_no,baseurl2,sep = " "))
 
 # reclassify site types for mapping
@@ -73,7 +75,7 @@ leaflet(siteinfo, options = leafletOptions(zoomControl = FALSE)) %>%
   addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                  fillOpacity = 1, fillColor = ~pal(site_tp_cd),
-                 popup = ~paste(station_nm,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
+                 popup = ~paste(name,"<br>", "Depths: ", depthsatsite)) %>%
   addScaleBar("bottomright") %>%
   addLegend(pal = pal, title = "Site type", opacity = 1, values = ~site_tp_cd, position = "topleft")
 
@@ -110,10 +112,10 @@ pset <- c(temp, sc, ph, do, nh34, no2, no3, no23, tn, po4, delH, delO)
 data <- readNWISqw(siteNumber = siteinfo$site_no, parameterCd = pset)
 b <- data %>% dplyr::select(c(site_no, sample_dt, sample_tm, parm_cd, result_va))
 
-# ## option B (suggested going forward)
-# data <- readWQPqw(siteNumber = paste0("USGS-", siteinfo$site_no), parameterCd = pset)
+# # ## option B (suggested going forward)
+# datab <- readWQPqw(siteNumber = paste0("USGS-", siteinfo$site_no), parameterCd = pset)
 # # select columns and rename
-# b <- data %>% dplyr::select(c(MonitoringLocationIdentifier, ActivityStartDate, USGSPCode, CharacteristicName, ResultMeasure.MeasureUnitCode, ResultMeasureValue))
+# b <- datab %>% dplyr::select(c(MonitoringLocationIdentifier, ActivityStartDate, USGSPCode, CharacteristicName, ResultMeasure.MeasureUnitCode, ResultMeasureValue))
 # names(b) <- c("site_no", "sample_dt", "parm_cd", "charname", "units", "result_va")
 # b$site_no <- sub("USGS-", "", b$site_no)
 
@@ -121,7 +123,7 @@ b <- data %>% dplyr::select(c(site_no, sample_dt, sample_tm, parm_cd, result_va)
 a <- siteinfo 
 a$station_nm[grep("SHUBAEL", a$station_nm)] <- "SHUBAEL POND"
 alldata <- right_join(a,b) %>%
-  rename(date = sample_dt) %>%
+  dplyr::rename(date = sample_dt) %>%
   mutate(param = parm_cd, yearmon = format(date, "%Y-%m")) 
 
 # create param names from codes 
@@ -134,7 +136,7 @@ gwl <- readNWISgwl(siteNumbers = siteinfo$site_no)
 dtw <- gwl %>%
   filter(!is.na(lev_va))
 dtw <- right_join(siteinfo %>% dplyr::select(station_nm, site_no, id, dec_lat_va, dec_long_va, alt_va, well_depth_va, weblink), dtw)%>%
-  rename(date = lev_dt) %>%
+  dplyr::rename(date = lev_dt) %>%
   mutate(yearmon = format(date, "%Y-%m"))
 
 ```
@@ -150,7 +152,7 @@ nwells <- alldata %>%
 # number of depths and samples at each location, by parameter
 allsum <- alldata %>% 
   group_by(id, param) %>%
-  summarise(count = n()) %>%
+  dplyr::summarise(count = n()) %>%
   pivot_wider(id_cols = id, names_from = param, values_from = count)
 
 allsum <- left_join(allsum, nwells) %>%
@@ -161,7 +163,8 @@ allsum <- left_join(allsum, nwells) %>%
 ym <- "2022-03"
 zt <- alldata %>%
   #dplyr::filter(yearmon == ym)
-  dplyr::filter(date > "2022-03-05")
+  dplyr::filter(date > "2022-03-05") %>%
+  dplyr::filter(date < "2022-04-01")
 
 # number of depths and samples at each location, by parameter
 ztsum <- zt %>% 
@@ -217,10 +220,7 @@ mapparam <- function(data, palette, title){
   addProviderTiles('OpenStreetMap.Mapnik')%>%
   addCircleMarkers(lng = ~dec_long_va, lat = ~dec_lat_va, weight = 1, color = "gray", radius = 6, opacity = 1, 
                    fillOpacity = 1, fillColor = ~pal(result_va),
-                   popup = ~paste(station_nm,"<br>","Value",result_va,"<br>","<a href='"
-                                  , weblink
-                                  , "' target='_blank'>"
-                                  , "Link to data</a>")) %>%
+                   popup = ~paste(station_nm,"<br>","Value",result_va)) %>%  # ,"<br>","<a href='", weblink, "' target='_blank'>", "Link to data</a>")) %>%
   addScaleBar("bottomright") %>%
   addLegend(pal = palette, title = title, opacity = 1, values = ~result_va, position = "bottomleft")
 }
@@ -372,25 +372,42 @@ $~$
 
 $~$
 
-```{r, eval = TRUE, include = TRUE}
-ttl = "NO3-N (mg/L) vertical profiles"
+```{r, eval = TRUE, include = TRUE, message = FALSE}
+ttl = "NO3-N (mg/L) in vertical profiles"
 
 a <- alldata %>% filter(parm_cd==no3) %>% 
-  filter(id %in% c(508, 517, 522, 523, 524, 525)) %>% 
-  filter(station_nm != "MA-A1W  517-0036")  # duplicate well @ 517
+  filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>% 
+  filter(station_nm != "MA-A1W  517-0036") %>% # duplicate well @ 517 
+  mutate(altitude = alt_va - well_depth_va)
 
-p <- ggplot(a, aes(x = result_va, y = well_depth_va)) +
+p <- ggplot(a, aes(x = result_va, y = altitude)) +
   geom_path(aes(color = yearmon))+
-  facet_wrap(~id, scales = "free", ncol = 3)+ 
-  theme(panel.spacing.x = unit(1, "cm"), panel.spacing.y = unit(2, "cm")) +
+  facet_wrap(~id, ncol = 4)+                          # scales = "free",
+  coord_cartesian(ylim = c(15, 45)) +
+  theme(panel.spacing.x = unit(0.5, "cm"), panel.spacing.y = unit(1, "cm"), axis.text.y = element_text(vjust = -5)) +
   #theme_bw() + 
-  scale_y_reverse()+ #limits = yrange
+  #scale_y_reverse()+ #limits = yrange
   ggtitle(ttl)
 
 ggplotly(p)
 
+ttl = "PO4-N (mg/L) in vertical profiles"
 
+a <- alldata %>% filter(parm_cd==po4) %>% 
+  filter(id %in% c(505, 508, 517, 522, 523, 524, 525, 526)) %>% 
+  filter(station_nm != "MA-A1W  517-0036") %>% # duplicate well @ 517 
+  mutate(altitude = alt_va - well_depth_va)
 
+p <- ggplot(a, aes(x = result_va, y = altitude)) +
+  geom_path(aes(color = yearmon))+
+  facet_wrap(~id, ncol = 4)+                          # scales = "free",
+  coord_cartesian(ylim = c(15, 45)) +
+  theme(panel.spacing.x = unit(0.5, "cm"), panel.spacing.y = unit(1, "cm"), axis.text.y = element_text(vjust = -5)) +
+  #theme_bw() + 
+  #scale_y_reverse()+ #limits = yrange
+  ggtitle(ttl)
+
+ggplotly(p)
 ```
 
 
