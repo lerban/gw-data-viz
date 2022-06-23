@@ -127,7 +127,7 @@ alldata <- right_join(a,b) %>%
   mutate(param = parm_cd, yearmon = format(date, "%Y-%m")) 
 
 # create param names from codes 
-alldata$param <- dplyr::recode(alldata$param, `00010` = "temp", `00095` = "SpC", `00400` = "pH", `00300` = "DO", `00608` = "NH34", `00613` = "NO2", `00618` = "NO3", `00631` = "NO23", `62854` = "TN", `00671` = "PO4", `82082` = "delH", `82085` = "delO")
+alldata$param <- dplyr::recode(alldata$param, `00010` = "temp", `00095` = "SpC", `00400` = "pH", `00300` = "DO", `00608` = "NH34_N", `00613` = "NO2_N", `00618` = "NO3_N", `00631` = "NO23_N", `62854` = "TN", `00671` = "PO4_P", `82082` = "delH", `82085` = "delO")
 
 # pull water levels data
 gwl <- readNWISgwl(siteNumbers = siteinfo$site_no) 
@@ -156,7 +156,7 @@ allsum <- alldata %>%
   pivot_wider(id_cols = id, names_from = param, values_from = count)
 
 allsum <- left_join(allsum, nwells) %>%
-  dplyr::select(id, depths, temp, SpC, pH, DO, PO4, NH34:NO3, TN) %>%
+  dplyr::select(id, depths, temp, SpC, pH, DO, PO4_P, NH34_N:NO3_N, TN) %>%
   arrange(depths)
 
 # subset data for a specific sampling event
@@ -173,7 +173,7 @@ ztsum <- zt %>%
   pivot_wider(id_cols = id, names_from = param, values_from = count)
 
 ztsum <- left_join(ztsum, nwells) %>%
-  dplyr::select(id, depths, temp, SpC, pH, DO, PO4, NH34:NO3, TN) %>%
+  dplyr::select(id, depths, temp, SpC, pH, DO, PO4_P, NH34_N:NO3_N, TN) %>%
   arrange(depths)
 
 # means at each location, single time
@@ -198,9 +198,9 @@ zmax <- zt %>%
 # calculate percentages of N in different forms
 ftn <- pivot_wider(zt, id_cols = c(id, site_no:dec_long_va, well_depth_va), names_from = param, values_from = result_va)%>%
   filter(!is.na(TN)) %>%
-  mutate(percent_organicN = round(100*(1 - ((NH34+NO23)/TN)), 1), percent_NO23 = round(100*NO23/TN, 1))
+  mutate(percent_organicN = round(100*(1 - ((NH34_N+NO23_N)/TN)), 1), percent_NO23_N = round(100*NO23_N/TN, 1))
 
-kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, site_tp_cd, temp, SpC, pH, DO, PO4, NH34, NO3, NO23, TN, percent_organicN, percent_NO23), digits = 3, caption = paste0("Snapshot of ", ym, " sampling results"))
+kable(ftn %>% arrange(id) %>% dplyr::select(station_nm, temp, SpC, pH, DO, PO4_P, NH34_N, NO3_N, NO23_N, TN, percent_organicN, percent_NO23_N), digits = 3, col.names = c('Station', 'Temp (ºC)', 'SpC (µS/cm)', 'pH (-)', 'DO', 'PO4-P', 'NH34-N', 'NO3-N', 'NO23-N', 'TN', 'org. N (%)', 'NO23-N (%)'), caption = paste0("Snapshot of ", ym, " sampling results. All units are mg/L unless otherwise noted."))
 
 ```
 
