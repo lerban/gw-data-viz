@@ -160,11 +160,11 @@ allsum <- left_join(allsum, nwells) %>%
   arrange(depths)
 
 # subset data for a specific sampling event
-ym <- "2022-03"
+ym <- "2022-06"
 zt <- alldata %>%
-  #dplyr::filter(yearmon == ym)
-  dplyr::filter(date > "2022-03-05") %>%
-  dplyr::filter(date < "2022-04-01")
+  dplyr::filter(yearmon == ym)
+  #dplyr::filter(date > "2022-03-05") %>%
+  #dplyr::filter(date < "2022-04-01")
 
 # number of depths and samples at each location, by parameter
 ztsum <- zt %>% 
@@ -382,6 +382,7 @@ a <- alldata %>% filter(parm_cd==no3) %>%
 
 p <- ggplot(a, aes(x = result_va, y = altitude)) +
   geom_path(aes(color = yearmon))+
+  geom_point(aes(color = yearmon), size = 0.8)+
   facet_wrap(~id, ncol = 4)+                          # scales = "free",
   coord_cartesian(ylim = c(15, 45)) +
   theme(panel.spacing.x = unit(0.5, "cm"), panel.spacing.y = unit(1, "cm"), axis.text.y = element_text(vjust = -5)) +
@@ -400,6 +401,7 @@ a <- alldata %>% filter(parm_cd==po4) %>%
 
 p <- ggplot(a, aes(x = result_va, y = altitude)) +
   geom_path(aes(color = yearmon))+
+  geom_point(aes(color = yearmon), size = 0.8)+
   facet_wrap(~id, ncol = 4)+                          # scales = "free",
   coord_cartesian(ylim = c(15, 45)) +
   theme(panel.spacing.x = unit(0.5, "cm"), panel.spacing.y = unit(1, "cm"), axis.text.y = element_text(vjust = -5)) +
